@@ -9,6 +9,7 @@ import matter from 'gray-matter';
 import { CORE_SCHEMA, load } from 'js-yaml';
 
 const TRASH = '_trash';
+const TEMPLATES = '_templates';
 const EXCERPT_LEN = 200;
 const LINK_RE = /\[\[([0-9A-HJKMNP-TV-Z]{26})(?:\|[^\]]*)?\]\]/g;
 
@@ -17,7 +18,7 @@ export function blobSha(buf) {
   return createHash('sha1').update(`blob ${buf.length}\0`).update(buf).digest('hex');
 }
 
-const isTrashed = (folder) => folder === TRASH || folder.startsWith(TRASH + '/');
+const isReserved = (folder) => [TRASH, TEMPLATES].some((r) => folder === r || folder.startsWith(r + '/'));
 
 function expand(folder) {
   if (!folder) return [];
@@ -112,8 +113,8 @@ export function buildIndex(files, foldersJson, opts = {}) {
     if (meta.trashedFrom != null) entry.trashedFrom = str(meta.trashedFrom);
     if (entry.id !== id) entry.error = `front matter の id (${entry.id}) がファイル名と一致しません`;
     notes.push(entry);
-    // folders と tags は _trash を除いて集計する（notes[] には含める）
-    if (isTrashed(folder)) continue;
+    // folders と tags はゴミ箱とテンプレートを除いて集計する（notes[] には含める）
+    if (isReserved(folder)) continue;
     for (const p of expand(folder)) folders.add(p);
     for (const t of noteTags) tags[t] = (tags[t] ?? 0) + 1;
   }
@@ -123,7 +124,7 @@ export function buildIndex(files, foldersJson, opts = {}) {
       const j = JSON.parse(foldersJson);
       for (const f of j.folders ?? []) {
         const n = normalizeFolder(f);
-        if (n && !isTrashed(n)) for (const p of expand(n)) folders.add(p);
+        if (n && !isReserved(n)) for (const p of expand(n)) folders.add(p);
       }
     } catch {
       /* 壊れていれば無視 */

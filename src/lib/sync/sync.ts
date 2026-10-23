@@ -445,7 +445,9 @@ export class SyncEngine {
     if (changed || queued) await this.afterLocalChange(queued);
   }
 
-  async createNote(opts: { folder?: string; tags?: string[]; title?: string; body?: string } = {}): Promise<string> {
+  async createNote(
+    opts: { folder?: string; tags?: string[]; title?: string; body?: string; extra?: Record<string, unknown> } = {},
+  ): Promise<string> {
     const { id, content } = createNoteContent(opts);
     await this.saveNote(id, content);
     return id;

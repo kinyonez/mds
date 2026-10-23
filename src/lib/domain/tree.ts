@@ -1,4 +1,4 @@
-import { isTrashed } from './note';
+import { isReserved } from './note';
 import type { NoteSummary } from './types';
 
 export interface FolderNode {
@@ -35,10 +35,10 @@ export function buildTree(folders: Iterable<string>, notes: NoteSummary[]): Fold
   };
 
   for (const f of folders) {
-    if (f && !isTrashed({ folder: f })) ensure(f);
+    if (f && !isReserved({ folder: f })) ensure(f);
   }
   for (const n of notes) {
-    if (isTrashed(n)) continue;
+    if (isReserved(n)) continue;
     const node = ensure(n.folder);
     node.direct++;
     for (const p of ['', ...expandPaths(n.folder)]) byPath.get(p)!.total++;
@@ -51,11 +51,11 @@ export function buildTree(folders: Iterable<string>, notes: NoteSummary[]): Fold
   return root;
 }
 
-/** タグ → 件数（_trash を除く）。件数の降順、同数は名前順 */
+/** タグ → 件数（_trash と _templates を除く）。件数の降順、同数は名前順 */
 export function tagCounts(notes: NoteSummary[]): [string, number][] {
   const m = new Map<string, number>();
   for (const n of notes) {
-    if (isTrashed(n)) continue;
+    if (isReserved(n)) continue;
     for (const t of n.tags) m.set(t, (m.get(t) ?? 0) + 1);
   }
   return [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));

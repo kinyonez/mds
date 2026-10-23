@@ -1,4 +1,4 @@
-/** ハッシュルーティング: #/note/<id>、#/folder/<path>?tags=a,b、#/tag/<name>、#/search?q=、#/trash、#/unfiled、#/settings */
+/** ハッシュルーティング: #/note/<id>、#/folder/<path>?tags=a,b、#/tag/<name>、#/trash、#/templates、#/unfiled、#/settings */
 
 export type Route =
   | { name: 'all'; tags: string[] }
@@ -6,6 +6,7 @@ export type Route =
   | { name: 'unfiled'; tags: string[] }
   | { name: 'tag'; tag: string; tags: string[] }
   | { name: 'trash'; tags: string[] }
+  | { name: 'templates'; tags: string[] }
   | { name: 'note'; id: string }
   | { name: 'settings' };
 
@@ -34,6 +35,8 @@ export function parseHash(hash: string): Route {
       return { name: 'tag', tag: segs[1] ?? '', tags };
     case 'trash':
       return { name: 'trash', tags };
+    case 'templates':
+      return { name: 'templates', tags };
     case 'settings':
       return { name: 'settings' };
     default:
@@ -55,6 +58,8 @@ export function href(r: Route): string {
       return `#/tag/${encodeURIComponent(r.tag)}${q}`;
     case 'trash':
       return `#/trash${q}`;
+    case 'templates':
+      return `#/templates${q}`;
     case 'settings':
       return '#/settings';
     default:

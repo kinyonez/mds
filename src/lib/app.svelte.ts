@@ -1,4 +1,5 @@
-import { isTrashed, parseNote } from './domain/note';
+import { isTemplate, isTrashed, parseNote } from './domain/note';
+import { loadUi, saveUi } from './platform/theme';
 import { SearchIndex } from './domain/search';
 import { buildTree, tagCounts, type FolderNode } from './domain/tree';
 import type { NoteSummary } from './domain/types';
@@ -44,6 +45,9 @@ class AppState {
   tree = $derived<FolderNode>(buildTree(this.folderSet, this.notes));
   tags = $derived<[string, number][]>(tagCounts(this.notes));
   trashCount = $derived(this.notes.filter((n) => isTrashed(n)).length);
+  templates = $derived(this.notes.filter((n) => isTemplate(n)).sort((a, b) => a.title.localeCompare(b.title, 'ja')));
+  /** 一覧の表示（リスト / パネル）。UI 状態なので localStorage に置く */
+  listView = $state<'list' | 'panel'>(loadUi('list.view', 'list'));
   byId = $derived(new Map(this.notes.map((n) => [n.id, n])));
   /** 未同期の件数（起動時に目立たせる） */
   unsynced = $derived(this.sync?.changes ?? 0);
@@ -126,6 +130,11 @@ class AppState {
     const iso = new Date(exp.replace(' UTC', 'Z').replace(' ', 'T')).toISOString().slice(0, 10);
     if (Number.isNaN(Date.parse(iso)) || iso === this.config.tokenExpiry) return;
     await this.saveConfig({ ...this.config, tokenExpiry: iso });
+  }
+
+  setListView(v: 'list' | 'panel') {
+    this.listView = v;
+    saveUi('list.view', v);
   }
 
   async setSyncMode(mode: SyncMode) {

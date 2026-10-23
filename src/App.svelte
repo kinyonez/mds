@@ -16,6 +16,14 @@
     sidebarOpen ? 'sidebar' : router.route.name === 'note' || router.route.name === 'settings' ? 'main' : 'list',
   );
 
+  // PC のパネル表示では、ノートを開くまで一覧を右側いっぱいに広げる
+  const wideList = $derived(
+    app.listView === 'panel' &&
+      pane === 'list' &&
+      router.list.name !== 'trash' &&
+      router.list.name !== 'templates',
+  );
+
   $effect(() => {
     // ルートが変わったらサイドバーを閉じる
     void router.route;
@@ -58,7 +66,7 @@
   <div class="shell">
     <Banners />
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="layout" data-pane={pane} ontouchstart={onTouchStart} ontouchend={onTouchEnd}>
+    <div class="layout" data-pane={pane} data-wide-list={wideList} ontouchstart={onTouchStart} ontouchend={onTouchEnd}>
       <aside class="sidebar">
         <Sidebar onclose={() => (sidebarOpen = false)} />
       </aside>
@@ -141,6 +149,17 @@
   @media (max-width: 1199px) {
     .layout {
       grid-template-columns: 220px 280px 1fr;
+    }
+  }
+  @media (min-width: 900px) {
+    .layout[data-wide-list='true'] {
+      grid-template-columns: 240px 1fr;
+    }
+    .layout[data-wide-list='true'] .main {
+      display: none;
+    }
+    .layout[data-wide-list='true'] .list {
+      border-right: none;
     }
   }
   @media (max-width: 899px) {

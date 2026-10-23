@@ -1,6 +1,7 @@
 import { app } from './app.svelte';
 import { dialogs } from './dialog.svelte';
-import { normalizeFolder, normalizeTags } from './domain/note';
+import { TEMPLATES, normalizeFolder, normalizeTags, parseNote } from './domain/note';
+import { expandTemplate } from './domain/template';
 import { router, type ListRoute } from './router.svelte';
 
 async function guard<T>(fn: () => Promise<T>): Promise<T | undefined> {
@@ -12,12 +13,45 @@ async function guard<T>(fn: () => Promise<T>): Promise<T | undefined> {
   }
 }
 
+function listContext(list: ListRoute) {
+  return {
+    folder: list.name === 'folder' ? list.path : '',
+    tags: [...(list.tags ?? []), ...(list.name === 'tag' ? [list.tag] : [])],
+  };
+}
+
 /** 新規ノートは現在表示中のフォルダとタグ絞り込みを初期値として引き継ぐ */
 export async function newNote(list: ListRoute = router.list) {
-  const folder = list.name === 'folder' ? list.path : '';
-  const tags = [...(list.tags ?? []), ...(list.name === 'tag' ? [list.tag] : [])];
-  const id = await guard(() => app.engine.createNote({ folder, tags }));
+  if (list.name === 'templates') return newTemplate();
+  const id = await guard(() => app.engine.createNote(listContext(list)));
   if (id) router.go({ name: 'note', id });
+}
+
+/** テンプレートの本文・タイトル・フォルダ・タグを初期値にしてノートを作る */
+export async function newNoteFromTemplate(templateId: string, list: ListRoute = router.list) {
+  const id = await guard(async () => {
+    const rec = await app.engine.openNote(templateId);
+    if (!rec) throw new Error('テンプレートの本文を取得できません（オフラインで未取得の可能性があります）');
+    return app.engine.createNote(expandTemplate(parseNote(rec.content, templateId), listContext(list)));
+  });
+  if (id) router.go({ name: 'note', id });
+}
+
+export async function newTemplate() {
+  const id = await guard(() => app.engine.createNote({ folder: TEMPLATES, title: '新しいテンプレート' }));
+  if (id) router.go({ name: 'note', id });
+}
+
+/** テンプレートはゴミ箱を経由せずに削除する */
+export async function deleteTemplate(id: string, name: string) {
+  const ok = await dialogs.confirm(`テンプレート「${name}」を削除しますか？`, {
+    message: 'このテンプレートから作ったノートには影響しません。',
+    confirmLabel: '削除',
+    danger: true,
+  });
+  if (!ok) return;
+  await guard(() => app.engine.purgeNotes([id]));
+  router.go({ name: 'templates', tags: [] });
 }
 
 export async function moveNotes(ids: string[], current = '') {

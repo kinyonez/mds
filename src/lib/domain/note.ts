@@ -2,6 +2,8 @@ import { monotonicFactory } from 'ulid';
 import { parse, serialize, type NoteMeta } from './frontmatter';
 
 export const TRASH = '_trash';
+/** テンプレート用の予約フォルダ */
+export const TEMPLATES = '_templates';
 export const UNFILED = '';
 
 const newUlid = monotonicFactory();
@@ -31,7 +33,7 @@ const FORBIDDEN = /[\\:*?"<>`]/;
  * folder の正規化。NFC、前後の空白と / を除去、連続 / を圧縮、各セグメントの前後空白を除去。
  * 大文字小文字は区別する。_trash は予約名なので allowTrash 以外では拒否する。
  */
-export function normalizeFolder(input: string | undefined | null, opts: { allowTrash?: boolean } = {}): string {
+export function normalizeFolder(input: string | undefined | null, opts: { allowTrash?: boolean; allowTemplates?: boolean } = {}): string {
   if (input == null) return '';
   const s = String(input).normalize('NFC').trim().replace(/^\/+|\/+$/g, '');
   if (s === '') return '';
@@ -42,6 +44,7 @@ export function normalizeFolder(input: string | undefined | null, opts: { allowT
     if (seg === '.' || seg === '..') throw new NormalizeError(`フォルダ名に ${seg} は使えません`);
   }
   if (segs[0] === TRASH && !opts.allowTrash) throw new NormalizeError(`${TRASH} は予約名です`);
+  if (segs[0] === TEMPLATES && !opts.allowTemplates) throw new NormalizeError(`${TEMPLATES} は予約名です`);
   return segs.join('/');
 }
 
@@ -75,6 +78,16 @@ export function isTrashed(meta: { folder?: string }): boolean {
   return f === TRASH || f.startsWith(TRASH + '/');
 }
 
+export function isTemplate(meta: { folder?: string }): boolean {
+  const f = meta.folder ?? '';
+  return f === TEMPLATES || f.startsWith(TEMPLATES + '/');
+}
+
+/** ゴミ箱とテンプレート。フォルダツリー・タグ一覧・通常の一覧と検索から除外する */
+export function isReserved(meta: { folder?: string }): boolean {
+  return isTrashed(meta) || isTemplate(meta);
+}
+
 /** title が空なら本文の 1 行目をタイトルとして扱う */
 export function displayTitle(meta: { title?: unknown }, body?: string): string {
   const t = typeof meta.title === 'string' ? meta.title.trim() : '';
@@ -91,7 +104,7 @@ export function toMeta(raw: Record<string, unknown>, fallbackId?: string): NoteM
   const str = (v: unknown) => (v == null ? '' : v instanceof Date ? v.toISOString() : String(v));
   let folder = '';
   try {
-    folder = normalizeFolder(str(raw.folder), { allowTrash: true });
+    folder = normalizeFolder(str(raw.folder), { allowTrash: true, allowTemplates: true });
   } catch {
     folder = str(raw.folder);
   }
@@ -120,7 +133,9 @@ export function serializeNote(meta: NoteMeta, body: string): string {
   return serialize(meta as Record<string, unknown>, body);
 }
 
-export function createNoteContent(opts: { id?: string; title?: string; folder?: string; tags?: string[]; body?: string; now?: Date } = {}): {
+export function createNoteContent(
+  opts: { id?: string; title?: string; folder?: string; tags?: string[]; body?: string; now?: Date; extra?: Record<string, unknown> } = {},
+): {
   id: string;
   content: string;
 } {
@@ -129,10 +144,11 @@ export function createNoteContent(opts: { id?: string; title?: string; folder?: 
   const meta: NoteMeta = {
     id,
     title: opts.title ?? '',
-    folder: normalizeFolder(opts.folder ?? ''),
+    folder: normalizeFolder(opts.folder ?? '', { allowTemplates: true }),
     tags: normalizeTags(opts.tags ?? []),
     created: ts,
     updated: ts,
+    ...opts.extra,
   };
   return { id, content: serializeNote(meta, opts.body ?? '') };
 }

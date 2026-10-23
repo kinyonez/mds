@@ -182,3 +182,36 @@ describe('検索', () => {
     expect(s.search('差し替え').map((r) => r.id)).toEqual(['2']);
   });
 });
+
+describe('テンプレート', () => {
+  it('_templates は予約名で、ツリー・タグ一覧から除外される', async () => {
+    const { isReserved, TEMPLATES } = await import('../src/lib/domain/note');
+    expect(() => normalizeFolder('_templates')).toThrow(NormalizeError);
+    expect(normalizeFolder('_templates', { allowTemplates: true })).toBe('_templates');
+    expect(isReserved({ folder: TEMPLATES })).toBe(true);
+    const n = (id: string, folder: string, tags: string[] = []): NoteSummary => ({
+      id, title: id, folder, tags, created: '', updated: '', excerpt: '', links: [], local: false,
+    });
+    const root = buildTree(['_templates'], [n('1', '_templates', ['daily']), n('2', 'work', ['x'])]);
+    expect(root.children.map((c) => c.name)).toEqual(['work']);
+    expect(root.total).toBe(1);
+    expect(tagCounts([n('1', '_templates', ['daily']), n('2', 'work', ['x'])])).toEqual([['x', 1]]);
+  });
+
+  it('テンプレートの値をノートの初期値に展開する', async () => {
+    const { expandTemplate } = await import('../src/lib/domain/template');
+    const tpl = parseNote(
+      "---\nid: T\ntitle: 日報\nfolder: _templates\ntags: [daily, Work]\ntemplateFolder: work/daily\ntemplateTitle: '{{date}} 日報'\n---\n\n# {{title}}\n\n- {{time}} 開始\n- {{unknown}}\n",
+    );
+    const v = expandTemplate(tpl, { folder: 'other', tags: ['extra'], now: new Date(2026, 9, 23, 9, 5) });
+    expect(v).toEqual({
+      title: '2026-10-23 日報',
+      folder: 'work/daily',
+      tags: ['daily', 'work', 'extra'],
+      body: '# 2026-10-23 日報\n\n- 09:05 開始\n- {{unknown}}\n',
+    });
+    // フォルダ指定が無ければ今のフォルダ
+    const plain = parseNote('---\nid: T\ntitle: 空\nfolder: _templates\n---\n\nbody');
+    expect(expandTemplate(plain, { folder: 'here' }).folder).toBe('here');
+  });
+});

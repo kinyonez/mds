@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onDestroy, onMount, untrack } from 'svelte';
   import { app } from '../lib/app.svelte';
-  import { moveNotes, purgeNotes, restoreNotes, trashNotes } from '../lib/actions';
+  import { deleteTemplate, moveNotes, newNoteFromTemplate, purgeNotes, restoreNotes, trashNotes } from '../lib/actions';
+  import { dialogs } from '../lib/dialog.svelte';
   import type { NoteMeta } from '../lib/domain/frontmatter';
-  import { isTrashed, nowIso, parseNote, serializeNote } from '../lib/domain/note';
+  import { isReserved, isTemplate, isTrashed, normalizeFolder, nowIso, parseNote, serializeNote } from '../lib/domain/note';
+  import { TEMPLATE_FOLDER_KEY, TEMPLATE_TITLE_KEY } from '../lib/domain/template';
   import { prepareImage } from '../lib/image';
   import { menu } from '../lib/menu.svelte';
   import { loadUi, saveUi } from '../lib/platform/theme';
@@ -28,6 +30,9 @@
   let meta = $state<NoteMeta | null>(null);
   let title = $state('');
   let tags = $state<string[]>([]);
+  /** テンプレートの「作成時のフォルダ」（'' は作成時に表示中のフォルダ、'/' は未分類）と「作成時のタイトル」 */
+  let tplFolder = $state('');
+  let tplTitle = $state('');
   let body = $state('');
   /** front matter が壊れている時は生テキストをそのまま編集する */
   let raw = $state(false);
@@ -49,6 +54,8 @@
   let queueTimer: ReturnType<typeof setTimeout> | null = null;
 
   const trashed = $derived(!!meta && isTrashed(meta));
+  const template = $derived(!!meta && isTemplate(meta));
+  const tplFolderLabel = $derived(tplFolder === '' ? '作成時に表示中のフォルダ' : tplFolder === '/' ? '未分類' : tplFolder);
   const backlinks = $derived(app.notes.filter((n) => n.links.includes(id) && n.id !== id));
   const statusLabel = $derived<Record<NoteStatus, string>>({
     local: app.manual ? '未コミット' : 'ローカル保存済み',
@@ -72,12 +79,16 @@
     meta = p.meta;
     title = p.meta.title ?? '';
     tags = p.meta.tags ?? [];
+    tplFolder = String(p.meta[TEMPLATE_FOLDER_KEY] ?? '');
+    tplTitle = String(p.meta[TEMPLATE_TITLE_KEY] ?? '');
     body = p.body;
   }
 
   function compose(): string {
     if (raw || !meta) return body;
-    return serializeNote({ ...meta, title, tags, updated: nowIso() }, body);
+    // 値が undefined のキーは書き出されない（空にしたテンプレート設定は消える）
+    const extra = isTemplate(meta) ? { [TEMPLATE_FOLDER_KEY]: tplFolder || undefined, [TEMPLATE_TITLE_KEY]: tplTitle || undefined } : {};
+    return serializeNote({ ...meta, title, tags, ...extra, updated: nowIso() }, body);
   }
 
   onMount(() => {
@@ -203,8 +214,28 @@
     await fn();
   }
 
+  async function pickTemplateFolder() {
+    const v = await dialogs.pickFolder('作成時のフォルダ', tplFolder === '/' ? '' : tplFolder);
+    if (v == null) return;
+    try {
+      tplFolder = normalizeFolder(v) || '/';
+      edited();
+    } catch (e) {
+      app.notify((e as Error).message);
+    }
+  }
+
   function showMenu(e: MouseEvent) {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    if (template) {
+      menu.open(r.left, r.bottom + 4, [
+        { label: 'このテンプレートでノートを作成', run: () => withFlush(() => newNoteFromTemplate(id, router.list)) },
+        { label: '画像を挿入', run: () => editor?.pickFiles() },
+        { label: '履歴', run: () => (tab = 'history') },
+        { label: '削除', danger: true, run: () => withFlush(() => deleteTemplate(id, title || 'テンプレート')) },
+      ]);
+      return;
+    }
     menu.open(
       r.left,
       r.bottom + 4,
@@ -230,12 +261,37 @@
       {#if raw}
         <span class="title-raw">{id}</span>
       {:else}
-        <input class="title" type="text" placeholder="タイトル（空なら本文 1 行目）" bind:value={title} oninput={edited} disabled={loading} />
+        <input
+          class="title"
+          type="text"
+          placeholder={template ? 'テンプレート名' : 'タイトル（空なら本文 1 行目）'}
+          bind:value={title}
+          oninput={edited}
+          disabled={loading}
+        />
       {/if}
       <span class="status {status}" title={app.sync?.lastError ?? ''}>{statusLabel[status]}</span>
       <button class="ghost more" onclick={showMenu} aria-label="メニュー">⋯</button>
     </div>
-    {#if !raw && meta}
+    {#if !raw && meta && template}
+      <div class="tpl">
+        <label>
+          <span>作成時のタイトル</span>
+          <input type="text" placeholder={'例: {{date}} 日報（空なら無題）'} bind:value={tplTitle} oninput={edited} />
+        </label>
+        <div class="tpl-row">
+          <span>作成時のフォルダ</span>
+          <button class="folder ghost small" onclick={pickTemplateFolder} title="作成時のフォルダを選ぶ">📁 {tplFolderLabel}</button>
+          {#if tplFolder}
+            <button class="ghost small" onclick={() => ((tplFolder = ''), edited())} title="指定を外す">×</button>
+          {/if}
+        </div>
+        <div class="tpl-row">
+          <span>作成時のタグ</span>
+          <TagInput bind:tags onchange={edited} />
+        </div>
+      </div>
+    {:else if !raw && meta}
       <div class="row2">
         <button class="folder ghost small" onclick={() => withFlush(() => moveNotes([id], meta?.folder ?? ''))} title="移動">
           📁 {trashed ? 'ゴミ箱' : meta.folder || '未分類'}
@@ -259,6 +315,12 @@
   {#if rec?.parseError}
     <div class="banner error">front matter を解析できません: {rec.parseError}（生テキストを編集しています）</div>
   {/if}
+  {#if template}
+    <div class="banner info">
+      テンプレートを編集中（本文とタイトルで <code>{'{{date}}'}</code> <code>{'{{time}}'}</code> <code>{'{{title}}'}</code> が使えます）
+      <button onclick={() => withFlush(() => newNoteFromTemplate(id, router.list))}>このテンプレートでノートを作成</button>
+    </div>
+  {/if}
   {#if trashed}
     <div class="banner">
       このノートはゴミ箱にあります
@@ -281,7 +343,7 @@
           <Editor
             bind:this={editor}
             value={body}
-            notes={() => app.notes}
+            notes={() => app.notes.filter((n) => !isReserved(n))}
             onchange={(v) => {
               body = v;
               edited();
@@ -320,6 +382,39 @@
     display: flex;
     flex-direction: column;
     gap: 0.3em;
+  }
+  .tpl {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3em;
+    font-size: 0.9em;
+  }
+  .tpl label,
+  .tpl-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+  }
+  .tpl label > span,
+  .tpl-row > span {
+    flex-shrink: 0;
+    width: 8em;
+    color: var(--fg-muted);
+    font-size: 0.9em;
+  }
+  .tpl input[type='text'] {
+    min-height: 28px;
+    padding: 0.2em 0.5em;
+  }
+  .tpl .folder {
+    max-width: none;
+  }
+  .banner.info {
+    background: var(--bg-active);
+    color: var(--fg);
+  }
+  .banner code {
+    font-family: var(--mono);
   }
   .row1,
   .row2,

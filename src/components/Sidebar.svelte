@@ -9,7 +9,6 @@
   let { onclose }: { onclose: () => void } = $props();
 
   const r = $derived(router.route);
-  const unfiled = $derived(app.notes.filter((n) => n.folder === '').length);
   const active = (name: string, extra?: string) =>
     r.name === name && (extra === undefined || ('path' in r && r.path === extra) || ('tag' in r && r.tag === extra));
 </script>
@@ -24,21 +23,17 @@
 
 <nav>
   <a class="row" class:active={active('all')} href="#/">
-    <span>すべてのノート</span><span class="count">{app.notes.length - app.trashCount}</span>
-  </a>
-  <!-- folder が空のノートはツリー先頭の「未分類」 -->
-  <a class="row" class:active={active('unfiled')} href="#/unfiled">
-    <span>未分類</span><span class="count">{unfiled}</span>
+    <span>すべてのノート</span><span class="count">{app.tree.total}</span>
   </a>
 
   <div class="section">
     <span>フォルダ</span>
     <button class="ghost add" title="新しいフォルダ" aria-label="新しいフォルダ" onclick={() => createFolder()}>＋</button>
   </div>
+  <!-- folder が空のノートはツリー先頭の「未分類」フォルダ -->
+  <FolderItem node={{ name: '未分類', path: '', children: [], direct: app.tree.direct, total: app.tree.direct }} depth={0} unfiled />
   {#each app.tree.children as node (node.path)}
     <FolderItem {node} depth={0} />
-  {:else}
-    <p class="muted small empty">フォルダはありません</p>
   {/each}
 
   <div class="section"><span>タグ</span></div>
@@ -60,6 +55,9 @@
 </nav>
 
 <footer>
+  <a class="row" class:active={active('templates')} href="#/templates">
+    <span>テンプレート</span><span class="count">{app.templates.length} 件</span>
+  </a>
   <a class="row" class:active={active('trash')} href="#/trash">
     <span>ゴミ箱</span><span class="count">{app.trashCount} 件</span>
   </a>

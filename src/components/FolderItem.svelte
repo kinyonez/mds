@@ -8,7 +8,8 @@
   import { href, router } from '../lib/router.svelte';
   import { NOTE_MIME } from '../lib/dnd';
 
-  let { node, depth }: { node: FolderNode; depth: number } = $props();
+  /** unfiled: ツリー先頭の「未分類」（folder が空のノート）。メニューは出さない */
+  let { node, depth, unfiled = false }: { node: FolderNode; depth: number; unfiled?: boolean } = $props();
 
   // 開閉状態は UI 状態なのでリポジトリではなく localStorage に置く
   const isOpen = () => loadUi<Record<string, boolean>>('folders.open', {})[node.path] ?? false;
@@ -20,7 +21,9 @@
     saveUi('folders.open', all);
   }
 
-  const active = $derived(router.route.name === 'folder' && router.route.path === node.path);
+  const active = $derived(
+    unfiled ? router.route.name === 'unfiled' : router.route.name === 'folder' && router.route.path === node.path,
+  );
 
   // 配下のフォルダを開いた時（サブフォルダ作成直後など）は親を展開して見えるようにする
   $effect(() => {
@@ -30,6 +33,7 @@
   let dropping = $state(false);
 
   function showMenu(x: number, y: number) {
+    if (unfiled) return;
     menu.open(x, y, [
       { label: 'サブフォルダを作成', run: () => createFolder(node.path) },
       { label: 'リネーム・移動', run: () => renameFolder(node.path) },
@@ -44,7 +48,7 @@
     if (!id) return;
     e.preventDefault();
     void app.engine.moveNote(id, node.path).then(
-      () => app.notify(`${node.path} へ移動しました`),
+      () => app.notify(`${node.path || '未分類'} へ移動しました`),
       (err) => app.notify(err.message),
     );
   }
@@ -72,7 +76,9 @@
   <button class="twisty ghost" class:hidden={!node.children.length} onclick={toggle} aria-label={open ? '閉じる' : '開く'}>
     {open ? '▾' : '▸'}
   </button>
-  <a href={href({ name: 'folder', path: node.path, tags: [] })} title={node.path}>{node.name}</a>
+  <a href={unfiled ? href({ name: 'unfiled', tags: [] }) : href({ name: 'folder', path: node.path, tags: [] })} title={node.path || node.name}
+    >{node.name}</a
+  >
   <!-- 直下件数 / 配下合計件数 -->
   <span class="count" title="直下 {node.direct} 件 / 配下合計 {node.total} 件">
     {node.direct}{#if node.total !== node.direct}<span class="total">/{node.total}</span>{/if}
