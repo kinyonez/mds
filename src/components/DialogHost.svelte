@@ -5,12 +5,15 @@
   const d = $derived(dialogs.current);
   let value = $state('');
   let filter = $state('');
+  /** 一覧から明示的に選んだか。選んでいなければ入力したパスをそのまま移動先にする */
+  let picked = $state(false);
   let input: HTMLInputElement | undefined = $state();
 
   $effect(() => {
     if (d) {
       value = d.value ?? '';
       filter = '';
+      picked = false;
       queueMicrotask(() => input?.focus());
     }
   });
@@ -19,10 +22,18 @@
     ['', ...app.folderSet].filter((f, i, a) => a.indexOf(f) === i && (!filter || f.toLowerCase().includes(filter.toLowerCase()))),
   );
 
+  const chosen = $derived(picked || !filter.trim() ? value : filter.trim());
+
+  function pick(f: string) {
+    value = f;
+    picked = true;
+  }
+
   function submit(e: Event) {
     e.preventDefault();
     if (!d) return;
     if (d.kind === 'confirm') dialogs.close(true);
+    else if (d.kind === 'folder') dialogs.close(chosen);
     else dialogs.close(value);
   }
 </script>
@@ -35,18 +46,18 @@
       {#if d.kind === 'prompt'}
         <input type="text" bind:this={input} bind:value placeholder={d.placeholder} />
       {:else if d.kind === 'folder'}
-        <input type="search" bind:this={input} bind:value={filter} placeholder="フォルダを絞り込み、または新しいパスを入力" />
+        <input type="search" bind:this={input} bind:value={filter} oninput={() => (picked = false)} placeholder="フォルダを絞り込み、または新しいパスを入力" />
         <ul class="folders">
           {#each folders as f (f)}
             <li>
-              <button type="button" class:selected={value === f} onclick={() => (value = f)}>
+              <button type="button" class:selected={chosen === f} onclick={() => pick(f)} ondblclick={submit}>
                 {f || '未分類（ルート）'}
               </button>
             </li>
           {/each}
           {#if filter && !folders.includes(filter.trim())}
             <li>
-              <button type="button" class:selected={value === filter.trim()} onclick={() => (value = filter.trim())}>
+              <button type="button" class:selected={chosen === filter.trim()} onclick={() => pick(filter.trim())}>
                 新しいフォルダ: {filter.trim()}
               </button>
             </li>

@@ -21,6 +21,12 @@
   }
 
   const active = $derived(router.route.name === 'folder' && router.route.path === node.path);
+
+  // 配下のフォルダを開いた時（サブフォルダ作成直後など）は親を展開して見えるようにする
+  $effect(() => {
+    const r = router.route;
+    if (!open && r.name === 'folder' && r.path.startsWith(node.path + '/')) toggle();
+  });
   let dropping = $state(false);
 
   function showMenu(x: number, y: number) {
