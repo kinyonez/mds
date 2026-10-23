@@ -30,11 +30,11 @@
     <span>フォルダ</span>
     <button class="ghost add" title="新しいフォルダ" aria-label="新しいフォルダ" onclick={() => createFolder()}>＋</button>
   </div>
-  <!-- folder が空のノートはツリー先頭の「未分類」フォルダ -->
-  <FolderItem node={{ name: '未分類', path: '', children: [], direct: app.tree.direct, total: app.tree.direct }} depth={0} unfiled />
   {#each app.tree.children as node (node.path)}
     <FolderItem {node} depth={0} />
   {/each}
+  <!-- folder が空のノートはツリー末尾の「未分類」フォルダ -->
+  <FolderItem node={{ name: '未分類', path: '', children: [], direct: app.tree.direct, total: app.tree.direct }} depth={0} unfiled />
 
   <div class="section"><span>タグ</span></div>
   <div class="tags">

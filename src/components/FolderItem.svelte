@@ -8,7 +8,7 @@
   import { href, router } from '../lib/router.svelte';
   import { NOTE_MIME } from '../lib/dnd';
 
-  /** unfiled: ツリー先頭の「未分類」（folder が空のノート）。メニューは出さない */
+  /** unfiled: ツリー末尾の「未分類」（folder が空のノート）。メニューは出さない */
   let { node, depth, unfiled = false }: { node: FolderNode; depth: number; unfiled?: boolean } = $props();
 
   // 開閉状態は UI 状態なのでリポジトリではなく localStorage に置く
