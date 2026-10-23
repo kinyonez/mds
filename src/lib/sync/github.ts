@@ -215,7 +215,8 @@ export class GitHubClient {
    * ここで base と突き合わせる。ref の更新が 422（間に他のコミットが入った）なら最初からやり直す。
    */
   async commitBatch(
-    message: string,
+    /** 関数なら build の後に評価する（変更内容からメッセージを作る場合） */
+    message: string | (() => string),
     build: (tree: Map<string, string>) => Promise<TreeChange[]>,
     maxAttempts = 3,
   ): Promise<{ commit: string | null; shas: Map<string, string> }> {
@@ -252,7 +253,7 @@ export class GitHubClient {
       const commit = await (
         await this.request('/git/commits', {
           method: 'POST',
-          body: JSON.stringify({ message, tree: tree.sha, parents: [head.commit] }),
+          body: JSON.stringify({ message: typeof message === 'function' ? message() : message, tree: tree.sha, parents: [head.commit] }),
         })
       ).json();
       try {

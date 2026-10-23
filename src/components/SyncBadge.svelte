@@ -11,14 +11,19 @@
           ? '停止中'
           : s.syncing
             ? '同期中'
-            : s.pending
-              ? `未送信 ${s.pending}`
+            : s.changes
+              ? `${s.mode === 'manual' ? '未コミット' : '未送信'} ${s.changes}`
               : '同期済み',
   );
-  const tone = $derived(!s?.online || s?.paused ? 'warn' : s?.pending ? 'busy' : 'ok');
+  const tone = $derived(!s?.online || s?.paused ? 'warn' : s?.changes ? 'busy' : 'ok');
 </script>
 
-<button class="badge {tone}" title={s?.lastError ?? '今すぐ同期'} onclick={() => app.engine.sync()} disabled={!s?.configured}>
+<button
+  class="badge {tone}"
+  title={s?.lastError ?? (s?.mode === 'manual' ? '変更をまとめてコミット' : '今すぐ同期')}
+  onclick={() => app.syncNow()}
+  disabled={!s?.configured || s?.syncing}
+>
   <span class="dot"></span>{label}
 </button>
 

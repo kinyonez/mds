@@ -6,11 +6,13 @@ import { decryptToken, decryptWithKey, encryptToken, type EncryptedToken } from 
 import { openDb, Store } from './store/db';
 import { Queue } from './store/queue';
 import { GitHubClient, type RepoRef } from './sync/github';
-import { SyncEngine, type EngineState } from './sync/sync';
+import { SyncEngine, type EngineState, type SyncMode } from './sync/sync';
 
 export interface Config extends RepoRef {
   /** トークンの有効期限（ISO 日付）。ヘッダから取れればそれを、取れなければ手入力 */
   tokenExpiry?: string;
+  /** 未設定は auto */
+  syncMode?: SyncMode;
 }
 
 export type Phase = 'loading' | 'setup' | 'locked' | 'ready';
@@ -44,7 +46,8 @@ class AppState {
   trashCount = $derived(this.notes.filter((n) => isTrashed(n)).length);
   byId = $derived(new Map(this.notes.map((n) => [n.id, n])));
   /** 未同期の件数（起動時に目立たせる） */
-  unsynced = $derived(this.sync?.pending ?? 0);
+  unsynced = $derived(this.sync?.changes ?? 0);
+  manual = $derived(this.sync?.mode === 'manual');
 
   expiryWarning = $derived.by(() => {
     const e = this.config?.tokenExpiry;
@@ -74,6 +77,7 @@ class AppState {
     await this.engine.loadCache();
 
     this.config = (await this.store.getSetting<Config>('config')) ?? null;
+    await this.engine.setMode(this.config?.syncMode ?? 'auto');
     const enc = await this.store.getSetting<EncryptedToken>('token');
     if (!this.config || !enc) {
       this.phase = 'setup';
@@ -122,6 +126,23 @@ class AppState {
     const iso = new Date(exp.replace(' UTC', 'Z').replace(' ', 'T')).toISOString().slice(0, 10);
     if (Number.isNaN(Date.parse(iso)) || iso === this.config.tokenExpiry) return;
     await this.saveConfig({ ...this.config, tokenExpiry: iso });
+  }
+
+  async setSyncMode(mode: SyncMode) {
+    if (this.config) await this.saveConfig({ ...this.config, syncMode: mode });
+    await this.engine.setMode(mode);
+  }
+
+  /** 手動モードなら未コミットの変更を 1 コミットに、自動モードなら pull とキューの再開 */
+  async syncNow() {
+    if (!this.manual) return this.engine.sync();
+    const n = this.unsynced;
+    await this.engine.refreshIndex().catch(() => undefined);
+    await this.engine.commitNow();
+    const s = this.engine.state;
+    if (s.paused || s.lastError) this.notify(`同期できませんでした: ${s.paused?.message ?? s.lastError}`);
+    else if (n) this.notify(`${n} 件の変更をコミットしました`);
+    else this.notify('最新の状態です');
   }
 
   async saveConfig(c: Config) {

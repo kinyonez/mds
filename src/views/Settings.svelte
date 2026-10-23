@@ -221,6 +221,22 @@
   {/if}
 
   <section>
+    <h2>同期</h2>
+    <label class="check">
+      <input type="radio" name="syncMode" value="auto" checked={!app.manual} onchange={() => app.setSyncMode('auto')} />
+      自動 — 編集停止から 3 秒でノートごとにコミット
+    </label>
+    <label class="check">
+      <input type="radio" name="syncMode" value="manual" checked={app.manual} onchange={() => app.setSyncMode('manual')} />
+      手動 — 「同期」ボタンで未コミットの変更をまとめて 1 コミット
+    </label>
+    <p class="small muted">
+      どちらのモードでも編集は端末内（IndexedDB）に即時保存され、他の端末の変更は 5 分おきとアプリ復帰時に取り込みます。
+      手動モードではコミットするまで他の端末には反映されません。手動から自動に切り替えると、溜まっている変更を 1 コミットで送ります。
+    </p>
+  </section>
+
+  <section>
     <h2>表示</h2>
     <div class="inline">
       <select bind:value={theme} onchange={() => setTheme(theme)} aria-label="テーマ">

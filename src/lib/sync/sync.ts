@@ -27,6 +27,12 @@ export type NoteStatus = 'local' | 'syncing' | 'synced' | 'conflict' | 'offline'
 
 export type PauseReason = 'auth' | 'forbidden' | 'notfound' | 'ratelimit';
 
+/**
+ * auto: 編集停止から 3 秒でノートごとにコミットする。
+ * manual: 定期同期は pull（index 取得）だけ。commitNow() で未コミットの変更をまとめて 1 コミットにする。
+ */
+export type SyncMode = 'auto' | 'manual';
+
 export interface EngineState {
   online: boolean;
   configured: boolean;
@@ -34,6 +40,9 @@ export interface EngineState {
   /** 処理中のノート id */
   inflight: string[];
   pending: number;
+  mode: SyncMode;
+  /** 未コミットの変更件数（ノート・添付・folders.json・完全削除） */
+  changes: number;
   paused: { reason: PauseReason; message: string; until?: number } | null;
   lastError?: string;
   lastIndexAt?: number;
@@ -146,6 +155,8 @@ export class SyncEngine {
   private now: () => number;
   private setTimer: (fn: () => void, ms: number) => unknown;
   private clearTimer: (h: unknown) => void;
+  /** 手動モードで commitNow() の実行中だけキューを流す */
+  private manualRun = false;
 
   state: EngineState = {
     online: true,
@@ -153,6 +164,8 @@ export class SyncEngine {
     syncing: false,
     inflight: [],
     pending: 0,
+    mode: 'auto',
+    changes: 0,
     paused: null,
     indexMissing: false,
     version: 0,
@@ -194,6 +207,36 @@ export class SyncEngine {
     return this.client;
   }
 
+  private get auto() {
+    return this.state.mode === 'auto';
+  }
+
+  /** 手動 → 自動に切り替えた時は、溜まっている変更を 1 コミットで送る */
+  async setMode(mode: SyncMode): Promise<void> {
+    const prev = this.state.mode;
+    this.emit({ mode });
+    if (prev === 'manual' && mode === 'auto' && this.state.changes > 0) {
+      await this.queue.enqueue({ op: 'sync', ids: [] }, this.now());
+      await this.afterLocalChange();
+    }
+  }
+
+  /** 未コミットの変更をまとめて 1 コミットにする（手動モードの「同期」ボタン） */
+  async commitNow(): Promise<void> {
+    if (!this.client) return;
+    await this.queue.enqueue({ op: 'sync', ids: [] }, this.now());
+    await this.queue.wakeAll(this.now());
+    if (this.state.paused?.reason !== 'ratelimit') this.emit({ paused: null });
+    this.manualRun = true;
+    try {
+      // 実行中の flush があればそれを待ってから、積んだ sync を流す
+      await this.flush();
+      await this.flush();
+    } finally {
+      this.manualRun = false;
+    }
+  }
+
   setOnline(online: boolean) {
     const was = this.state.online;
     this.emit({ online });
@@ -206,8 +249,14 @@ export class SyncEngine {
   async loadCache(): Promise<void> {
     const rec = await this.store.getIndex();
     if (rec) this.index = rec.data;
-    this.emit({ pending: await this.queue.count(), lastIndexAt: rec?.fetchedAt });
+    this.emit({ pending: await this.queue.count(), changes: await this.countChanges(), lastIndexAt: rec?.fetchedAt });
     this.bump();
+  }
+
+  private async countChanges(): Promise<number> {
+    const notes = (await this.store.allNotes()).filter((r) => (r.dirty && !r.deleted) || r.purge).length;
+    const atts = (await this.store.allAttachments()).filter((a) => a.dirty).length;
+    return notes + atts + ((await this.store.getFolders())?.dirty ? 1 : 0);
   }
 
   /** 起動時・フォアグラウンド復帰時・5 分おきに呼ぶ */
@@ -391,7 +440,7 @@ export class SyncEngine {
       if (cur?.conflict) rec.conflict = cur.conflict;
       await this.store.putNote(rec);
     }
-    const queued = enqueue && !!rec?.dirty && !rec.conflict;
+    const queued = enqueue && this.auto && !!rec?.dirty && !rec.conflict;
     if (queued) await this.queue.enqueue({ op: 'put', ids: [id] }, this.now());
     if (changed || queued) await this.afterLocalChange(queued);
   }
@@ -442,11 +491,12 @@ export class SyncEngine {
       await this.store.putNote({
         ...(r ?? recordFromContent(id, '', this.now(), false)),
         deleted: true,
+        purge: true,
         dirty: false,
         conflict: undefined,
       });
     }
-    await this.queue.enqueue({ op: 'delete', ids }, this.now());
+    if (this.auto) await this.queue.enqueue({ op: 'delete', ids }, this.now());
     await this.afterLocalChange();
   }
 
@@ -468,7 +518,7 @@ export class SyncEngine {
       remove: f.remove.filter((r) => !expandPaths(p).includes(r)),
       dirty: true,
     });
-    await this.queue.enqueue({ op: 'folders', ids: [] }, this.now());
+    if (this.auto) await this.queue.enqueue({ op: 'folders', ids: [] }, this.now());
     await this.afterLocalChange();
   }
 
@@ -485,7 +535,7 @@ export class SyncEngine {
       remove: [...new Set([...f.remove, path])],
       dirty: true,
     });
-    await this.queue.enqueue({ op: 'folders', ids: [] }, this.now());
+    if (this.auto) await this.queue.enqueue({ op: 'folders', ids: [] }, this.now());
     await this.afterLocalChange();
   }
 
@@ -518,7 +568,9 @@ export class SyncEngine {
       renames: [...(f.renames ?? []), [src, dst]],
       dirty: true,
     });
-    await this.queue.enqueue({ op: 'batch', ids, message: `folder: リネーム ${src} → ${dst || '(ルート)'}`, folders: true }, this.now());
+    if (this.auto) {
+      await this.queue.enqueue({ op: 'batch', ids, message: `folder: リネーム ${src} → ${dst || '(ルート)'}`, folders: true }, this.now());
+    }
     await this.afterLocalChange();
     return ids.length;
   }
@@ -539,7 +591,7 @@ export class SyncEngine {
       const tags = [...new Set((r.meta.tags ?? []).map((t) => (t === src ? dst : t)))];
       await this.writeLocal(id, updateMeta(r.content, { tags }, new Date(this.now())));
     }
-    await this.queue.enqueue({ op: 'batch', ids, message: `tag: リネーム ${src} → ${dst}` }, this.now());
+    if (this.auto) await this.queue.enqueue({ op: 'batch', ids, message: `tag: リネーム ${src} → ${dst}` }, this.now());
     await this.afterLocalChange();
     return ids.length;
   }
@@ -558,7 +610,7 @@ export class SyncEngine {
     const name = `${this.now().toString(36)}-${safe}`;
     const key = `${noteId}/${name}`;
     await this.store.putAttachment({ key, noteId, filename: name, blob, dirty: true });
-    await this.queue.enqueue({ op: 'attach', ids: [noteId], key }, this.now());
+    if (this.auto) await this.queue.enqueue({ op: 'attach', ids: [noteId], key }, this.now());
     await this.afterLocalChange();
     return `../attachments/${noteId}/${encodeURIComponent(name)}`;
   }
@@ -589,7 +641,7 @@ export class SyncEngine {
       // リモート版を base にして、ローカル版で上書きする
       await this.store.putBase({ id, content: remote.content, sha: remote.sha });
       await this.store.putNote({ ...r, conflict: undefined, dirty: true });
-      await this.queue.enqueue({ op: 'put', ids: [id] }, this.now());
+      if (this.auto) await this.queue.enqueue({ op: 'put', ids: [id] }, this.now());
     } else {
       if (choice === 'copy') {
         const { meta, body } = parseNote(r.content, id);
@@ -608,7 +660,7 @@ export class SyncEngine {
   }
 
   private async afterLocalChange(flush = true) {
-    this.emit({ pending: await this.queue.count() });
+    this.emit({ pending: await this.queue.count(), changes: await this.countChanges() });
     this.bump();
     if (flush && this.client && this.state.online && !this.state.paused) void this.flush();
   }
@@ -639,6 +691,7 @@ export class SyncEngine {
 
   private async runQueue(): Promise<void> {
     if (!this.client || !this.state.online) return;
+    if (!this.auto && !this.manualRun) return;
     const p = this.state.paused;
     if (p) {
       if (p.reason === 'ratelimit' && p.until && p.until <= this.now()) this.emit({ paused: null });
@@ -669,7 +722,7 @@ export class SyncEngine {
         }
       }
     } finally {
-      this.emit({ syncing: false, pending: await this.queue.count() });
+      this.emit({ syncing: false, pending: await this.queue.count(), changes: await this.countChanges() });
     }
   }
 
@@ -725,11 +778,13 @@ export class SyncEngine {
       case 'delete':
         return this.processDelete(item.ids);
       case 'batch':
-        return this.processBatch(item.ids, item.message, !!item.folders);
+        return this.processBatch(item.ids, item.message, { folders: !!item.folders });
       case 'folders':
         return this.processFolders();
       case 'attach':
         return this.processAttach(item.key);
+      case 'sync':
+        return this.processSync();
     }
   }
 
@@ -811,78 +866,105 @@ export class SyncEngine {
     } else {
       // 送信中に編集された
       await this.store.putNote({ ...now, syncedAt: this.now() });
-      await this.queue.enqueue({ op: 'put', ids: [id] }, this.now());
+      if (this.auto) await this.queue.enqueue({ op: 'put', ids: [id] }, this.now());
     }
   }
 
   private async processDelete(ids: string[]): Promise<void> {
-    const paths = new Set(ids.map(notePath));
-    const prefixes = ids.map((id) => `attachments/${id}/`);
-    const titles = await Promise.all(
-      ids.map(async (id) => {
-        const s = this.index.notes.find((n) => n.id === id);
-        return s?.title || id;
-      }),
-    );
-    const message = ids.length === 1 ? `note: 削除 ${titles[0]}` : `note: 削除 ${ids.length} 件`;
-    await this.client!.commitBatch(message, async (tree) => {
-      const changes: TreeChange[] = [];
-      for (const p of tree.keys()) {
-        if (paths.has(p) || prefixes.some((x) => p.startsWith(x))) changes.push({ path: p, content: null });
-      }
-      return changes;
-    });
-    for (const id of ids) {
-      await this.store.deleteBase(id);
-      for (const a of await this.store.attachmentsOf(id)) await this.store.deleteAttachment(a.key);
-      const r = await this.store.getNote(id);
-      if (r) await this.store.putNote({ ...r, content: '', deleted: true, dirty: false });
-    }
+    await this.processBatch([], null, { purges: ids });
+  }
+
+  /** 未コミットの変更をすべて集めて 1 コミットにする */
+  private async processSync(): Promise<void> {
+    const notes = await this.store.allNotes();
+    const purges = notes.filter((n) => n.purge).map((n) => n.id);
+    const ids = notes.filter((n) => n.dirty && !n.deleted && !n.conflict).map((n) => n.id);
+    const attachments = (await this.store.allAttachments()).filter((a) => a.dirty && !purges.includes(a.noteId)).map((a) => a.key);
+    await this.processBatch(ids, null, { folders: true, attachments, purges });
   }
 
   /**
    * 一括コミット。ファイルごとの楽観ロックが効かないので、head のツリーで base の sha と
    * 一致するかを確かめ、食い違ったノートは外して通常の put（マージ経路）に回す。
+   * message が null なら変更内容から作る（1 件ならその件のメッセージ、複数なら一覧）。
    */
-  private async processBatch(ids: string[], message: string, withFolders: boolean): Promise<void> {
+  private async processBatch(
+    ids: string[],
+    message: string | null,
+    opts: { folders?: boolean; attachments?: string[]; purges?: string[] } = {},
+  ): Promise<void> {
     const sent = new Map<string, string>();
     const diverged: string[] = [];
+    const lines: string[] = [];
     let foldersSent: FoldersRecord | null = null;
+    const purges = opts.purges ?? [];
+    const attachments = opts.attachments ?? [];
 
-    const r = await this.client!.commitBatch(message, async (tree) => {
-      sent.clear();
-      diverged.length = 0;
-      foldersSent = null;
-      const changes: TreeChange[] = [];
-      for (const id of ids) {
-        const note = await this.store.getNote(id);
-        if (!note || note.deleted || !note.dirty || note.conflict) continue;
-        const base = await this.store.getBase(id);
-        const remoteSha = tree.get(notePath(id));
-        if ((base?.sha ?? undefined) !== remoteSha) {
-          diverged.push(id);
-          continue;
+    const r = await this.client!.commitBatch(
+      () => message ?? (lines.length === 1 ? lines[0] : `sync: ${lines.length} 件の変更\n\n${lines.map((l) => `- ${l}`).join('\n')}`),
+      async (tree) => {
+        sent.clear();
+        diverged.length = 0;
+        lines.length = 0;
+        foldersSent = null;
+        const changes: TreeChange[] = [];
+        for (const id of ids) {
+          const note = await this.store.getNote(id);
+          if (!note || note.deleted || !note.dirty || note.conflict) continue;
+          const base = await this.store.getBase(id);
+          const remoteSha = tree.get(notePath(id));
+          if ((base?.sha ?? undefined) !== remoteSha) {
+            diverged.push(id);
+            continue;
+          }
+          sent.set(id, note.content);
+          changes.push({ path: notePath(id), content: note.content });
+          lines.push(this.commitMessage(note.content, base?.content, id));
         }
-        sent.set(id, note.content);
-        changes.push({ path: notePath(id), content: note.content });
-      }
-      if (withFolders) {
-        const f = await this.foldersRecord();
-        const sha = tree.get(FOLDERS_PATH);
-        const remote = sha ? parseFoldersJson(new TextDecoder().decode(await this.client!.getBlob(sha))) : [];
-        const next = applyFolderSet(remote, f.add, f.remove, f.renames);
-        if (JSON.stringify(next) !== JSON.stringify([...remote].sort())) {
-          changes.push({ path: FOLDERS_PATH, content: foldersJson(next) });
+        for (const id of purges) {
+          const paths = [...tree.keys()].filter((p) => p === notePath(id) || p.startsWith(`attachments/${id}/`));
+          for (const p of paths) changes.push({ path: p, content: null });
+          if (paths.length) lines.push(`note: 削除 ${this.index.notes.find((n) => n.id === id)?.title || id}`);
         }
-        foldersSent = f;
-      }
-      return changes;
-    });
+        for (const key of attachments) {
+          const a = await this.store.getAttachment(key);
+          if (!a?.dirty) continue;
+          const b64 = bytesToBase64(new Uint8Array(await a.blob.arrayBuffer()));
+          changes.push({ path: `attachments/${key}`, content: b64, base64: true });
+          lines.push(`note: 添付 ${a.filename}`);
+        }
+        if (opts.folders) {
+          const f = await this.foldersRecord();
+          if (f.dirty) {
+            const sha = tree.get(FOLDERS_PATH);
+            const remote = sha ? parseFoldersJson(new TextDecoder().decode(await this.client!.getBlob(sha))) : [];
+            const next = applyFolderSet(remote, f.add, f.remove, f.renames);
+            if (JSON.stringify(next) !== JSON.stringify([...remote].sort())) {
+              changes.push({ path: FOLDERS_PATH, content: foldersJson(next) });
+              lines.push('meta: フォルダ一覧を更新');
+            }
+          }
+          foldersSent = f;
+        }
+        return changes;
+      },
+    );
 
     for (const [id, content] of sent) {
       const sha = r.shas.get(notePath(id));
       if (sha) await this.afterPut(id, content, sha);
     }
+    for (const key of attachments) {
+      const a = await this.store.getAttachment(key);
+      if (a) await this.store.putAttachment({ ...a, dirty: false });
+    }
+    for (const id of purges) {
+      await this.store.deleteBase(id);
+      for (const a of await this.store.attachmentsOf(id)) await this.store.deleteAttachment(a.key);
+      const rec = await this.store.getNote(id);
+      if (rec) await this.store.putNote({ ...rec, content: '', deleted: true, purge: false, dirty: false });
+    }
+    // 食い違ったノートは同じ実行の中で put（マージ経路）に回す
     for (const id of diverged) await this.queue.enqueue({ op: 'put', ids: [id] }, this.now());
     if (foldersSent) await this.markFoldersSynced(foldersSent);
   }

@@ -20,6 +20,7 @@ export class Queue {
       (q) =>
         (op.op === 'put' && q.op === 'put' && q.ids[0] === op.ids[0]) ||
         (op.op === 'folders' && q.op === 'folders') ||
+        (op.op === 'sync' && q.op === 'sync') ||
         (op.op === 'attach' && q.op === 'attach' && q.key === op.key),
     );
     if (!dup) await tx.store.add({ ...op, attempts: 0, nextAt: now } as QueueItem);

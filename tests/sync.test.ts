@@ -333,3 +333,93 @@ describe('デバウンス', () => {
     expect(gh.read(`notes/${id}.md`)).toBe(content);
   });
 });
+
+describe('手動モード', () => {
+  it('編集・定期同期ではコミットせず、commitNow でまとめて 1 コミットにする', async () => {
+    const { gh, engine, store, queue } = await seeded('base');
+    await engine.setMode('manual');
+    const id = (await store.allNotes())[0].id;
+    const before = gh.commits.length;
+
+    const cur = (await store.getNote(id))!;
+    await engine.saveNote(id, updateBody(cur.content, 'edited'));
+    const a = await engine.createNote({ title: '新規 A', body: 'a' });
+    const b = await engine.createNote({ title: '新規 B', body: 'b', folder: 'x' });
+    await engine.createFolder('empty/folder');
+    await engine.addAttachment(a, 'img.png', new Blob([new Uint8Array([1, 2, 3])]));
+    await engine.flush();
+    await engine.sync(); // 定期同期は pull だけ
+    expect(gh.commits.length).toBe(before);
+    expect(await queue.count()).toBe(0);
+    expect(engine.state.changes).toBe(5); // ノート 3 + 添付 1 + folders.json 1
+    expect(await engine.noteStatus(a)).toBe('local');
+
+    await engine.commitNow();
+    expect(gh.commits.length).toBe(before + 1);
+    expect(gh.head.message).toMatch(/^sync: 5 件の変更\n\n- note: 更新 メモ\n/);
+    expect(body(gh.read(`notes/${id}.md`))).toBe('edited');
+    expect(body(gh.read(`notes/${a}.md`))).toBe('a');
+    expect(parseNote(gh.read(`notes/${b}.md`)!).meta.folder).toBe('x');
+    expect(JSON.parse(gh.read('_meta/folders.json')!).folders).toEqual(['empty/folder']);
+    expect([...gh.files().keys()].some((p) => p.startsWith(`attachments/${a}/`))).toBe(true);
+    expect(engine.state.changes).toBe(0);
+    expect(await engine.noteStatus(a)).toBe('synced');
+
+    // その後の編集も、commitNow までは溜まる
+    await engine.saveNote(a, updateBody((await store.getNote(a))!.content, 'a2'));
+    await engine.commitNow();
+    expect(gh.commits.length).toBe(before + 2);
+    expect(gh.head.message).toBe('note: 更新 新規 A');
+  });
+
+  it('リネームと完全削除も 1 コミットに含まれる', async () => {
+    const { gh, engine } = await setup();
+    const n1 = createNoteContent({ title: 'n1', folder: 'old', tags: ['t'], body: '1' });
+    const n2 = createNoteContent({ title: 'n2', folder: 'old', body: '2' });
+    gh.write(`notes/${n1.id}.md`, n1.content);
+    gh.write(`notes/${n2.id}.md`, n2.content);
+    gh.write(`attachments/${n2.id}/x.png`, 'PNG');
+    gh.write('index.json', fakeIndex(gh));
+    await engine.refreshIndex();
+    await engine.setMode('manual');
+    const before = gh.commits.length;
+
+    await engine.renameFolder('old', 'new');
+    await engine.renameTag('t', 'u');
+    await engine.trashNote(n2.id);
+    await engine.purgeNotes([n2.id]);
+    await engine.flush();
+    expect(gh.commits.length).toBe(before);
+
+    await engine.commitNow();
+    expect(gh.commits.length).toBe(before + 1);
+    const p1 = parseNote(gh.read(`notes/${n1.id}.md`)!);
+    expect(p1.meta.folder).toBe('new');
+    expect(p1.meta.tags).toEqual(['u']);
+    expect(gh.read(`notes/${n2.id}.md`)).toBeUndefined();
+    expect(gh.read(`attachments/${n2.id}/x.png`)).toBeUndefined();
+    expect(engine.state.changes).toBe(0);
+  });
+
+  it('他デバイスと食い違ったノートはマージしてから送る', async () => {
+    const { gh, engine, id, content } = await seeded('l1\nl2\nl3');
+    await engine.setMode('manual');
+    gh.write(`notes/${id}.md`, updateBody(content, 'L1\nl2\nl3'));
+    await engine.saveNote(id, updateBody(content, 'l1\nl2\nL3'));
+    await engine.commitNow();
+    expect(body(gh.read(`notes/${id}.md`))).toBe('L1\nl2\nL3');
+    expect(engine.state.changes).toBe(0);
+  });
+
+  it('手動 → 自動に切り替えると溜まった変更を 1 コミットで送る', async () => {
+    const { gh, engine } = await setup();
+    await engine.setMode('manual');
+    await engine.createNote({ body: 'x' });
+    await engine.createNote({ body: 'y' });
+    const before = gh.commits.length;
+    await engine.setMode('auto');
+    await engine.flush();
+    expect(gh.commits.length).toBe(before + 1);
+    expect(engine.state.changes).toBe(0);
+  });
+});

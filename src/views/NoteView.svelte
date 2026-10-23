@@ -40,18 +40,23 @@
   let editor: ReturnType<typeof Editor> | undefined = $state();
   /** 自分が最後に IndexedDB へ書いた内容。これと違えば外部（マージ・再取得）での変更 */
   let saved = '';
+  /**
+   * ローカルの編集・保存の世代。読み直しの await 中に世代が進んでいたら、読んだ記録は
+   * 自分の保存より古い可能性があるので差し替えない（入力中の内容を古い版で上書きしないため）
+   */
+  let gen = 0;
   let localTimer: ReturnType<typeof setTimeout> | null = null;
   let queueTimer: ReturnType<typeof setTimeout> | null = null;
 
   const trashed = $derived(!!meta && isTrashed(meta));
   const backlinks = $derived(app.notes.filter((n) => n.links.includes(id) && n.id !== id));
-  const statusLabel: Record<NoteStatus, string> = {
-    local: 'ローカル保存済み',
+  const statusLabel = $derived<Record<NoteStatus, string>>({
+    local: app.manual ? '未コミット' : 'ローカル保存済み',
     syncing: '同期中',
     synced: '同期済み',
     conflict: '競合あり',
     offline: 'オフライン',
-  };
+  });
 
   function applyRecord(r: NoteRecord) {
     rec = r;
@@ -106,10 +111,11 @@
   $effect(() => {
     void app.sync?.version;
     if (loading) return;
+    const g = gen;
     void (async () => {
       const r = await app.engine.store.getNote(id);
       status = await app.engine.noteStatus(id);
-      if (!r || localTimer) return;
+      if (!r || localTimer || g !== gen) return;
       if (r.content !== saved) {
         applyRecord(r);
         editor?.setValue(body);
@@ -118,6 +124,7 @@
   });
 
   function edited() {
+    gen++;
     if (localTimer) clearTimeout(localTimer);
     localTimer = setTimeout(() => void saveLocal(), LOCAL_SAVE_MS);
     if (queueTimer) clearTimeout(queueTimer);
@@ -130,9 +137,12 @@
     localTimer = null;
     const content = compose();
     saved = content;
+    gen++;
     if (!raw && meta) meta = parseNote(content, id).meta;
     await app.engine.saveNote(id, content, { enqueue: false });
+    gen++;
     app.indexBody(id, content);
+    status = await app.engine.noteStatus(id);
   }
 
   async function enqueue() {
@@ -140,6 +150,7 @@
     queueTimer = null;
     if (localTimer) await saveLocal();
     if (rec || saved) await app.engine.saveNote(id, saved, { enqueue: true });
+    status = await app.engine.noteStatus(id);
   }
 
   async function flushAll() {

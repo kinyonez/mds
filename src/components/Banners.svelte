@@ -59,7 +59,7 @@
     未同期 {app.unsynced} 件
     {#if !s?.online}（オフライン）{:else if s?.lastError}— {s.lastError}{/if}
     {#if s?.online && !s?.paused}
-      <button onclick={() => app.engine.sync()}>今すぐ同期</button>
+      <button onclick={() => app.syncNow()}>今すぐ同期</button>
     {/if}
   </div>
 {/if}

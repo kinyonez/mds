@@ -15,6 +15,8 @@ export interface NoteRecord {
   dirty: boolean;
   /** 完全削除済み。index から消えるまで非表示にする */
   deleted?: boolean;
+  /** 完全削除をまだリモートに反映していない */
+  purge?: boolean;
   /** 解決待ちの競合（リモート版） */
   conflict?: { content: string; sha: string };
   parseError?: string;
@@ -38,7 +40,9 @@ export type QueueOp =
   | { op: 'delete'; ids: string[] }
   | { op: 'batch'; ids: string[]; message: string; folders?: boolean }
   | { op: 'folders'; ids: [] }
-  | { op: 'attach'; ids: [string]; key: string };
+  | { op: 'attach'; ids: [string]; key: string }
+  /** 未コミットの変更（ノート・添付・folders.json・完全削除）をすべて 1 コミットにまとめる */
+  | { op: 'sync'; ids: [] };
 
 export type QueueItem = QueueOp & {
   seq?: number;
@@ -157,6 +161,9 @@ export class Store {
   }
   putAttachment(a: AttachmentRecord) {
     return this.db.put('attachments', a);
+  }
+  allAttachments() {
+    return this.db.getAll('attachments');
   }
   attachmentsOf(noteId: string) {
     return this.db.getAllFromIndex('attachments', 'noteId', noteId);
