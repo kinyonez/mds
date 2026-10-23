@@ -1,0 +1,30 @@
+# .github/workflows/index.yml
+name: build-index
+on:
+  push:
+    branches: [main]
+    paths: ['notes/**', '_meta/**']
+  workflow_dispatch:
+concurrency:
+  group: build-index
+  cancel-in-progress: true
+permissions:
+  contents: write
+jobs:
+  index:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --no-save --no-package-lock gray-matter@4 js-yaml@5
+      - run: node .github/scripts/build-index.mjs
+      - run: |
+          git config user.name  'index-bot'
+          git config user.email 'index-bot@users.noreply.github.com'
+          git add index.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'chore: rebuild index [skip ci]'
+          # クライアントのコミットとほぼ同時だと push が衝突する。rebase を 1 回挟み、
+          # それでも失敗したら次の push で再生成されるので放置する
+          git push || (git pull --rebase && git push) || echo 'push failed; next push will rebuild'

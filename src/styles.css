@@ -1,0 +1,256 @@
+/* 色はすべて CSS 変数で組む（ダークモードは data-theme / prefers-color-scheme で切り替え） */
+:root {
+  --bg: #ffffff;
+  --bg-soft: #f6f8fa;
+  --bg-hover: #eef1f4;
+  --bg-active: #ddf4ff;
+  --fg: #1f2328;
+  --fg-muted: #59636e;
+  --fg-faint: #8b949e;
+  --border: #d1d9e0;
+  --accent: #0969da;
+  --accent-fg: #ffffff;
+  --danger: #cf222e;
+  --warn-bg: #fff8c5;
+  --warn-fg: #7d4e00;
+  --ok: #1a7f37;
+  --conflict: #bc4c00;
+  --diff-add: #dafbe1;
+  --diff-del: #ffebe9;
+  --code-bg: #f6f8fa;
+  --shadow: 0 8px 24px rgba(140, 149, 159, 0.2);
+  --radius: 6px;
+  --app-height: 100dvh;
+  --font: system-ui, -apple-system, 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+  --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #0d1117;
+    --bg-soft: #151b23;
+    --bg-hover: #1f2630;
+    --bg-active: #12263f;
+    --fg: #e6edf3;
+    --fg-muted: #9198a1;
+    --fg-faint: #6e7681;
+    --border: #3d444d;
+    --accent: #4493f8;
+    --accent-fg: #ffffff;
+    --danger: #f85149;
+    --warn-bg: #3b2e05;
+    --warn-fg: #e3b341;
+    --ok: #3fb950;
+    --conflict: #f0883e;
+    --diff-add: #12261e;
+    --diff-del: #2d1215;
+    --code-bg: #151b23;
+    --shadow: 0 8px 24px rgba(1, 4, 9, 0.75);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: #0d1117;
+  --bg-soft: #151b23;
+  --bg-hover: #1f2630;
+  --bg-active: #12263f;
+  --fg: #e6edf3;
+  --fg-muted: #9198a1;
+  --fg-faint: #6e7681;
+  --border: #3d444d;
+  --accent: #4493f8;
+  --accent-fg: #ffffff;
+  --danger: #f85149;
+  --warn-bg: #3b2e05;
+  --warn-fg: #e3b341;
+  --ok: #3fb950;
+  --conflict: #f0883e;
+  --diff-add: #12261e;
+  --diff-del: #2d1215;
+  --code-bg: #151b23;
+  --shadow: 0 8px 24px rgba(1, 4, 9, 0.75);
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.5 var(--font);
+  -webkit-text-size-adjust: 100%;
+}
+
+#app {
+  height: var(--app-height);
+  overflow: hidden;
+}
+
+a {
+  color: var(--accent);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.35em 0.8em;
+  min-height: 32px;
+}
+
+button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+button.danger {
+  color: var(--danger);
+}
+
+button.ghost {
+  background: none;
+  border-color: transparent;
+}
+
+input[type='text'],
+input[type='password'],
+input[type='search'],
+input[type='date'],
+select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.4em 0.6em;
+  min-height: 34px;
+  width: 100%;
+}
+
+input:focus-visible,
+button:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.muted {
+  color: var(--fg-muted);
+}
+
+.small {
+  font-size: 0.85em;
+}
+
+.banner {
+  padding: 0.5em 1em;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  display: flex;
+  gap: 0.75em;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 0.9em;
+}
+
+.banner.error {
+  background: var(--diff-del);
+  color: var(--danger);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  padding: 0 0.55em;
+  border-radius: 999px;
+  background: var(--bg-active);
+  color: var(--accent);
+  font-size: 0.8em;
+  line-height: 1.7;
+  white-space: nowrap;
+}
+
+/* プレビュー */
+.markdown {
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.markdown h1,
+.markdown h2 {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.2em;
+}
+
+.markdown pre {
+  background: var(--code-bg);
+  padding: 0.8em 1em;
+  border-radius: var(--radius);
+  overflow-x: auto;
+}
+
+.markdown code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  background: var(--code-bg);
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+}
+
+.markdown pre code {
+  background: none;
+  padding: 0;
+}
+
+.markdown blockquote {
+  margin: 0;
+  padding: 0 1em;
+  color: var(--fg-muted);
+  border-left: 0.25em solid var(--border);
+}
+
+.markdown table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+
+.markdown th,
+.markdown td {
+  border: 1px solid var(--border);
+  padding: 0.3em 0.7em;
+}
+
+.markdown img {
+  max-width: 100%;
+}
+
+.markdown a.broken-link {
+  text-decoration: line-through;
+  color: var(--fg-faint);
+}
