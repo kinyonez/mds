@@ -65,6 +65,11 @@
     offline: 'オフライン',
   });
 
+  /** 未同期の変更があれば状態表示の代わりに同期ボタンを出す（競合・オフライン時は状態表示を優先） */
+  const canSync = $derived(
+    !!app.sync?.configured && app.sync.online && !app.sync.paused && app.unsynced > 0 && status !== 'conflict' && status !== 'offline',
+  );
+
   function applyRecord(r: NoteRecord) {
     rec = r;
     saved = r.content;
@@ -270,7 +275,18 @@
           disabled={loading}
         />
       {/if}
-      <span class="status {status}" title={app.sync?.lastError ?? ''}>{statusLabel[status]}</span>
+      {#if canSync}
+        <button
+          class="status sync-btn"
+          class:syncing={app.sync?.syncing}
+          onclick={() => withFlush(() => app.syncNow())}
+          disabled={app.sync?.syncing}
+          title={app.sync?.lastError ?? (app.manual ? '未コミットの変更をまとめて 1 コミットにする' : '今すぐ同期')}
+          >{app.sync?.syncing ? '同期中…' : `同期 (${app.unsynced})`}</button
+        >
+      {:else}
+        <span class="status {status}" title={app.sync?.lastError ?? ''}>{statusLabel[status]}</span>
+      {/if}
       {#if wide}
         <button
           class="ghost focus"
@@ -470,6 +486,16 @@
     border-radius: 999px;
     border: 1px solid var(--border);
     color: var(--fg-muted);
+  }
+  .sync-btn {
+    min-height: 0;
+    cursor: pointer;
+    color: var(--accent);
+    border-color: var(--accent);
+    background: none;
+  }
+  .sync-btn:hover:not(:disabled) {
+    background: var(--bg-active);
   }
   .status.synced {
     color: var(--ok);

@@ -133,11 +133,6 @@
   {#if list.name === 'trash'}
     <button class="small" onclick={emptyTrash} title="trashedAt から 30 日経過したものをまとめて削除">空にする</button>
   {:else}
-    {#if app.manual && app.unsynced > 0 && app.sync?.configured}
-      <button onclick={() => app.syncNow()} disabled={app.sync?.syncing} title="未コミットの変更をまとめて 1 コミットにする">
-        {app.sync?.syncing ? '同期中…' : `同期 (${app.unsynced})`}
-      </button>
-    {/if}
     {#if list.name === 'templates'}
       <button class="primary" onclick={() => newNote(list)} aria-label="新規テンプレート">＋ 新規</button>
     {:else}
