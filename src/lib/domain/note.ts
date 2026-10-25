@@ -1,5 +1,6 @@
 import { monotonicFactory } from 'ulid';
 import { parse, serialize, type NoteMeta } from './frontmatter';
+import type { NoteSummary } from './types';
 
 export const TRASH = '_trash';
 /** テンプレート用の予約フォルダ */
@@ -213,4 +214,19 @@ export function replaceFolderPrefix(folder: string, from: string, to: string): s
 export function timeOf(iso: string | undefined): number {
   const t = iso ? Date.parse(iso) : NaN;
   return Number.isNaN(t) ? 0 : t;
+}
+
+export type ListSort = 'updated-desc' | 'created-desc' | 'created-asc' | 'title-asc' | 'title-desc';
+
+/** 一覧の並び順。同順位は更新日の新しい順 */
+export function compareNotes(sort: ListSort): (a: NoteSummary, b: NoteSummary) => number {
+  const byUpdated = (a: NoteSummary, b: NoteSummary) => timeOf(b.updated) - timeOf(a.updated);
+  const primary = {
+    'updated-desc': () => 0,
+    'created-desc': (a: NoteSummary, b: NoteSummary) => timeOf(b.created) - timeOf(a.created),
+    'created-asc': (a: NoteSummary, b: NoteSummary) => timeOf(a.created) - timeOf(b.created),
+    'title-asc': (a: NoteSummary, b: NoteSummary) => a.title.localeCompare(b.title, 'ja'),
+    'title-desc': (a: NoteSummary, b: NoteSummary) => b.title.localeCompare(a.title, 'ja'),
+  }[sort];
+  return (a, b) => primary(a, b) || byUpdated(a, b);
 }

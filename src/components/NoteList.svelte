@@ -12,7 +12,7 @@
     trashNotes,
   } from '../lib/actions';
   import { NOTE_MIME } from '../lib/dnd';
-  import { isReserved, isTemplate, isTrashed, timeOf } from '../lib/domain/note';
+  import { compareNotes, isReserved, isTemplate, isTrashed, timeOf, type ListSort } from '../lib/domain/note';
   import { inFolder } from '../lib/domain/tree';
   import type { NoteSummary } from '../lib/domain/types';
   import { longpress, menu } from '../lib/menu.svelte';
@@ -68,11 +68,20 @@
 
   const notes = $derived.by(() => {
     const base = app.notes.filter((n) => matches(n, list));
-    if (list.name === 'templates' && !query.trim()) return base.sort((a, b) => a.title.localeCompare(b.title, 'ja'));
-    if (!query.trim()) return base.sort((a, b) => timeOf(b.updated) - timeOf(a.updated));
+    if (!query.trim()) return base.sort(compareNotes(list.name === 'templates' ? 'title-asc' : app.listSort));
     const order = new Map(app.searchIds(query).map((id, i) => [id, i]));
     return base.filter((n) => order.has(n.id)).sort((a, b) => order.get(a.id)! - order.get(b.id)!);
   });
+
+  const SORTS: [ListSort, string][] = [
+    ['updated-desc', '更新日 新しい順'],
+    ['created-desc', '作成日 新しい順'],
+    ['created-asc', '作成日 古い順'],
+    ['title-asc', 'タイトル 昇順'],
+    ['title-desc', 'タイトル 降順'],
+  ];
+  /** 作成日で並べている時は日付も作成日を出す */
+  const dateOf = (n: NoteSummary) => (list.name !== 'templates' && app.listSort.startsWith('created') ? n.created : n.updated);
 
   /** 絞り込みに追加できるタグ（今の一覧に出ているノートのタグ） */
   const addableTags = $derived(
@@ -149,6 +158,17 @@
 <div class="tools">
   <div class="search-row">
     <input type="search" placeholder={list.name === 'trash' ? 'ゴミ箱を検索' : list.name === 'templates' ? 'テンプレートを検索' : '検索'} bind:value={query} />
+    {#if list.name !== 'templates'}
+      <select
+        class="sort"
+        aria-label="並び順"
+        title={query.trim() ? '検索中は関連度順' : '並び順'}
+        value={app.listSort}
+        onchange={(e) => app.setListSort((e.currentTarget as HTMLSelectElement).value as ListSort)}
+      >
+        {#each SORTS as [v, label] (v)}<option value={v}>{label}</option>{/each}
+      </select>
+    {/if}
     {#if switchable}
       <div class="view-toggle" role="group" aria-label="表示">
         <button class:on={!panel} onclick={() => app.setListView('list')} aria-label="リスト表示" title="リスト">☰</button>
@@ -200,7 +220,7 @@
         <div class="top">
           <span class="title">{n.title}</span>
           {#if dirtyIds.has(n.id)}<span class="unsynced" title="未同期">●</span>{/if}
-          <span class="date">{fmt(n.updated)}</span>
+          <span class="date">{fmt(dateOf(n))}</span>
         </div>
         {#if n.error}
           <div class="error small">⚠ {n.error}</div>
@@ -262,6 +282,13 @@
   .search-row {
     display: flex;
     gap: 0.4em;
+  }
+  .sort {
+    width: auto;
+    flex-shrink: 0;
+    max-width: 9.5em;
+    padding: 0 0.4em;
+    font-size: 0.85em;
   }
   .view-toggle {
     display: inline-flex;

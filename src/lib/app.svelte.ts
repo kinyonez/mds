@@ -1,4 +1,4 @@
-import { isTemplate, isTrashed, parseNote } from './domain/note';
+import { isTemplate, isTrashed, parseNote, type ListSort } from './domain/note';
 import { loadUi, saveUi } from './platform/theme';
 import { SearchIndex } from './domain/search';
 import { buildTree, tagCounts, type FolderNode } from './domain/tree';
@@ -48,6 +48,8 @@ class AppState {
   templates = $derived(this.notes.filter((n) => isTemplate(n)).sort((a, b) => a.title.localeCompare(b.title, 'ja')));
   /** 一覧の表示（リスト / パネル）。UI 状態なので localStorage に置く */
   listView = $state<'list' | 'panel'>(loadUi('list.view', 'list'));
+  /** 一覧の並び順（検索中は関連度順、テンプレート一覧はタイトル順で固定） */
+  listSort = $state<ListSort>(loadUi('list.sort', 'updated-desc'));
   /** PC でサイドバーを折り畳んでいるか */
   sidebarCollapsed = $state<boolean>(loadUi('sidebar.collapsed', false));
   /** PC でノートの編集画面だけを全体に表示する */
@@ -139,6 +141,11 @@ class AppState {
   setListView(v: 'list' | 'panel') {
     this.listView = v;
     saveUi('list.view', v);
+  }
+
+  setListSort(v: ListSort) {
+    this.listSort = v;
+    saveUi('list.sort', v);
   }
 
   setSidebarCollapsed(v: boolean) {
