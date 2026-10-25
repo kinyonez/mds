@@ -19,6 +19,7 @@
   <span class="spacer"></span>
   <a class="icon" href="#/settings" title="設定" aria-label="設定">⚙</a>
   <button class="ghost close" onclick={onclose} aria-label="閉じる">×</button>
+  <button class="ghost collapse" onclick={() => app.setSidebarCollapsed(true)} title="サイドバーを折り畳む" aria-label="サイドバーを折り畳む">⇤</button>
 </header>
 
 <nav>
@@ -83,9 +84,17 @@
   .close {
     display: none;
   }
+  .collapse {
+    min-height: 0;
+    padding: 0 0.3em;
+    color: var(--fg-muted);
+  }
   @media (max-width: 899px) {
     .close {
       display: inline-block;
+    }
+    .collapse {
+      display: none;
     }
   }
   nav {

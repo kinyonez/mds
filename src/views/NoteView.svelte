@@ -271,6 +271,16 @@
         />
       {/if}
       <span class="status {status}" title={app.sync?.lastError ?? ''}>{statusLabel[status]}</span>
+      {#if wide}
+        <button
+          class="ghost focus"
+          class:on={app.focus}
+          onclick={() => (app.focus = !app.focus)}
+          title={app.focus ? '全画面編集を終了' : '編集画面だけを全体に表示'}
+          aria-label={app.focus ? '全画面編集を終了' : '全画面で編集'}
+          aria-pressed={app.focus}>{app.focus ? '⤡' : '⤢'}</button
+        >
+      {/if}
       <button class="ghost more" onclick={showMenu} aria-label="メニュー">⋯</button>
     </div>
     {#if !raw && meta && template}
@@ -474,6 +484,14 @@
   .status.offline {
     color: var(--warn-fg);
     background: var(--warn-bg);
+  }
+  .focus {
+    min-height: 0;
+    padding: 0 0.4em;
+    color: var(--fg-muted);
+  }
+  .focus.on {
+    color: var(--accent);
   }
   .more {
     font-size: 1.2em;

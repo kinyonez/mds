@@ -126,6 +126,9 @@
 
 <header>
   <button class="ghost menu-btn" onclick={onmenu} aria-label="サイドバーを開く">☰</button>
+  {#if app.sidebarCollapsed}
+    <button class="ghost expand-btn" onclick={() => app.setSidebarCollapsed(false)} title="サイドバーを開く" aria-label="サイドバーを開く">⇥</button>
+  {/if}
   <h1 title={title}>{title}</h1>
   {#if list.name === 'trash'}
     <button class="small" onclick={emptyTrash} title="trashedAt から 30 日経過したものをまとめて削除">空にする</button>
@@ -243,6 +246,11 @@
     display: none;
     font-size: 1.1em;
   }
+  .expand-btn {
+    min-height: 0;
+    padding: 0 0.3em;
+    color: var(--fg-muted);
+  }
   .split {
     display: inline-flex;
   }
@@ -343,6 +351,9 @@
   @media (max-width: 899px) {
     .menu-btn {
       display: inline-block;
+    }
+    .expand-btn {
+      display: none;
     }
   }
   .tools {

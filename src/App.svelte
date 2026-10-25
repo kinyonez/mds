@@ -66,7 +66,10 @@
   <div class="shell">
     <Banners />
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="layout" data-pane={pane} data-wide-list={wideList} ontouchstart={onTouchStart} ontouchend={onTouchEnd}>
+    <div class="layout" data-pane={pane} data-wide-list={wideList}
+      data-collapsed={app.sidebarCollapsed}
+      data-focus={app.focus && router.route.name === 'note'}
+      ontouchstart={onTouchStart} ontouchend={onTouchEnd}>
       <aside class="sidebar">
         <Sidebar onclose={() => (sidebarOpen = false)} />
       </aside>
@@ -160,6 +163,23 @@
     }
     .layout[data-wide-list='true'] .list {
       border-right: none;
+    }
+    .layout[data-collapsed='true'] {
+      grid-template-columns: 320px 1fr;
+    }
+    .layout[data-collapsed='true'][data-wide-list='true'],
+    .layout[data-focus='true'] {
+      grid-template-columns: 1fr;
+    }
+    .layout[data-collapsed='true'] .sidebar,
+    .layout[data-focus='true'] .sidebar,
+    .layout[data-focus='true'] .list {
+      display: none;
+    }
+  }
+  @media (min-width: 900px) and (max-width: 1199px) {
+    .layout[data-collapsed='true']:not([data-focus='true']) {
+      grid-template-columns: 280px 1fr;
     }
   }
   @media (max-width: 899px) {

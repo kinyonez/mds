@@ -48,6 +48,10 @@ class AppState {
   templates = $derived(this.notes.filter((n) => isTemplate(n)).sort((a, b) => a.title.localeCompare(b.title, 'ja')));
   /** 一覧の表示（リスト / パネル）。UI 状態なので localStorage に置く */
   listView = $state<'list' | 'panel'>(loadUi('list.view', 'list'));
+  /** PC でサイドバーを折り畳んでいるか */
+  sidebarCollapsed = $state<boolean>(loadUi('sidebar.collapsed', false));
+  /** PC でノートの編集画面だけを全体に表示する */
+  focus = $state(false);
   byId = $derived(new Map(this.notes.map((n) => [n.id, n])));
   /** 未同期の件数（起動時に目立たせる） */
   unsynced = $derived(this.sync?.changes ?? 0);
@@ -135,6 +139,11 @@ class AppState {
   setListView(v: 'list' | 'panel') {
     this.listView = v;
     saveUi('list.view', v);
+  }
+
+  setSidebarCollapsed(v: boolean) {
+    this.sidebarCollapsed = v;
+    saveUi('sidebar.collapsed', v);
   }
 
   async setSyncMode(mode: SyncMode) {
